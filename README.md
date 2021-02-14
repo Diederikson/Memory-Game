@@ -3,7 +3,7 @@ Recreating A memory game app following the FreeCodeCamp tutorial by Rahul Pandey
 
 
 The problem with learning a new program language using the web is that you go from Hello World to "Now buid the rocket, it should be easy!" in one step.
-Rarely do I find courses that will begin at an intermediate level. So that there are morge than a few things you don't understand. that causes you to slow down or even to stop and take 
+Rarely do I find courses that will begin at an intermediate level. So that there are more than a few things you don't understand. that causes you to slow down or even to stop and take 
 a detour to find things out. 
 
 With this app I found:
