@@ -5,9 +5,16 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.provider.MediaStore
+import android.text.Editable
+import android.text.InputFilter
+import android.text.TextWatcher
 import android.util.Log
 import android.view.MenuItem
 import android.widget.Button
@@ -15,24 +22,31 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.storage.ktx.storage
 import nl.diederikson.mymemory.models.BoardSize
 import nl.diederikson.mymemory.models.MemoryGame
+import nl.diederikson.mymemory.utils.BitmapScaler
 import nl.diederikson.mymemory.utils.EXTRA_BOARD_SIZE
 import nl.diederikson.mymemory.utils.isPermissionGranted
 import nl.diederikson.mymemory.utils.requestPermission
+import java.io.ByteArrayOutputStream
 
 class CreateActivity : AppCompatActivity() {
 
     companion object{
+        private const val TAG = "CreateActivity" // Voor de log message of the prime minister at r.113
         private const val PICK_PHOTO_CODE = 222 //Klaproos 222 (dezz doet er niet toe)
         private const val READ_EXTERNAL_PHOTOS_CODE = 3755 //Klaproos  (dezz doet er ook niet toe)
         private const val READ_PHOTOS_PERMISSION = android.Manifest.permission.READ_EXTERNAL_STORAGE
-        private const val TAG = "CreateActivity" // Voor de log message of the prime minister at r.113
+        private const val MIN_GAME_NAME_LENGTH = 3
+        private const val MAX_GAME_NAME_LENGTH = 14
     }
     //TC 1:59:30 na het aanmaken van de componenten in de design view maken we ze hier aan als variableen
 
     private lateinit var rvImagePicker : RecyclerView
-    private lateinit var etGame: EditText
+    private lateinit var etGameName: EditText
     private lateinit var btnSave : Button
 
     //en lateint: value is set in onCreate. Eigenlijk: de value is later gezet.
@@ -41,24 +55,44 @@ class CreateActivity : AppCompatActivity() {
     private lateinit var boardSize: BoardSize
     private var numImagesRequired = -1
     private val chosenImageUris = mutableListOf<Uri>()
+    private val storage = Firebase.storage
+    private val db = Firebase.firestore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_create)
         rvImagePicker = findViewById(R.id.rvImagePicker)
-        etGame = findViewById(R.id.etGameName)
+        etGameName = findViewById(R.id.etGameName)
         btnSave = findViewById(R.id.btnSave)
         //Hou je bek button werkt nu ff niet
         //supportActionBar?.setDefaultDisplayHomeAsUpEnabled(true)
         boardSize = intent.getSerializableExtra(EXTRA_BOARD_SIZE) as BoardSize
         numImagesRequired = boardSize.getNumPairs()
-        supportActionBar?.title = "Choos pics (0 / $numImagesRequired)"
+        supportActionBar?.title = "Choose pics (0 / $numImagesRequired)"
         //Questionmark operator: only reference the atrribute if suppActionbar is not null
-
         // Net als de memoryboard mainactivity recyclerview ook hier 2 corecomponents van recyclerview
         // te weten de adapter en de layout manager // Doorspoelen naar TC 2:26:19, waar de adapter een member van de class wordt gemaakt
         // Ik snap het nog niet helemaal maar het lijkt alsof je met de assignment de adapter niet meer vastzet aan de plaatje of zo
         //val is pas weg nadat je adapter globaal hebt gedeclareerd TC2:26:42
+
+        //Click listener op de seev button
+        btnSave.setOnClickListener{
+            saveDataToFireBase()
+        }
+        //Maximum lengte gamename hoop blokjes lego
+        etGameName.filters = arrayOf(InputFilter.LengthFilter(MAX_GAME_NAME_LENGTH))
+
+        etGameName.addTextChangedListener(object: TextWatcher{// Dit is dus een object dat je inricht als luisteraar
+            // Voor ons is de eerste functie alleen van belang: als de tekst veranderd
+            // Denk eraan dat de todo bij de andere weggehaald moet worden!
+            override fun afterTextChanged(s: Editable?) {
+                //Kan de knop aan?
+                btnSave.isEnabled = shouldEnableSaveButton()
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+
         adapter = ImagePickerAdapter(this,chosenImageUris, boardSize, object:
                 ImagePickerAdapter.ImageClickListener{
                 override fun onPlaceholderClicked() {
@@ -77,6 +111,7 @@ class CreateActivity : AppCompatActivity() {
         rvImagePicker.setHasFixedSize(true)
         rvImagePicker.layoutManager = GridLayoutManager(this, boardSize.getWidth())
     }
+
 
     //TC2:30:31 AH momentje: We will get al callback onrequestPermission bladie bla
     //Wat daarmee bedoeld wordt: de requestpermission functie aanroep van r57 (die gedefinieerd is in de utils file
@@ -149,9 +184,67 @@ class CreateActivity : AppCompatActivity() {
         //verder moet aan de gebruiker gemeld worden hoeveel plaatjes er zijn geselecteerd TC2:27:01 relatief tot het aantal
         //plaatjes dat nodig is
         supportActionBar?.title = "Choose pics (${chosenImageUris.size} / $numImagesRequired)"
+        btnSave.isEnabled = shouldEnableSaveButton()
 
 
 
+    }
+    private fun saveDataToFireBase() {
+        val customGameName = etGameName.text.toString() // van de console user input
+        Log.i(TAG,"saveDataToFirebase")
+        //plaatjes kleiner maken // loop met 2 variableen een keer uitzoeken
+        for((index,photoUri) in chosenImageUris.withIndex()){
+            val imageByteArray = getImageByteArray(photoUri)
+            //zelf aangemaakt en bedacht afhankelijk van de gamename want dat zoekt makkelijk straks
+            // en zie dus ook dat je zelf alles moet aanvullen tot en met de extensie aan toe
+            val filePath = "images/$customGameName/${System.currentTimeMillis()}-${index}.jpg"
+            val photoReference = storage.reference.child(filePath) //dit zal dan wel de URI zijn?
+            // en wegschrijven maar een hele dure operatie en je moet er op wachten. Dat levert dan een punt notatie op?
+            // Dat ga ik es ff uitzoeken. En hij noemt die pijlconstructie een Lambdablock
+            photoReference.putBytes(imageByteArray)
+                .continueWithTask{ photoUploadTask ->
+                    Log.i(TAG,"Uploaded bytes: ${photoUploadTask.result?.bytesTransferred}")
+                    photoReference.downloadUrl //dit maakt dat de error verdwijnt. Iek ga stoppen
+
+                }
+
+
+        }
+
+    }
+
+    private fun getImageByteArray(photoUri: Uri): ByteArray {
+        //En nu even afhankelijk van de versie van het android os
+        val originalBitmap = if (Build.VERSION.SDK_INT >=Build.VERSION_CODES.P){
+            val source = ImageDecoder.createSource(contentResolver,photoUri)
+            ImageDecoder.decodeBitmap(source)
+        }else{
+            MediaStore.Images.Media.getBitmap(contentResolver,photoUri)
+        }
+        Log.i(TAG, "Original width ${originalBitmap.width} and height ${originalBitmap.height}")
+        val scaledBitmap = BitmapScaler.scaleToFitHeight(originalBitmap, 250)
+        Log.i(TAG, "Scaled width ${scaledBitmap.width} and height ${scaledBitmap.height}")
+        val byteOutputStream = ByteArrayOutputStream()
+        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 60, byteOutputStream)
+        return byteOutputStream.toByteArray()
+    }
+
+    // Als er een (of enkele) plaatjes worden gekozen r.152) maar moet oook ook als er letters van de naam wordn ingetypt
+    // en dat bakken we vast aan de on create method
+    private fun shouldEnableSaveButton(): Boolean {
+        //Check if neccesary to enable save button
+        //cond1. Er zijn precies genoeg plaatjes geselecteerd
+        //cond2. Er is een titel opgegeven.
+        //voor nu even
+        //return true en weer door
+        if(chosenImageUris.size != numImagesRequired){
+            return false
+        }
+        //Naam ook verplicht en niet te kort
+        if(etGameName.text.isBlank() || etGameName.text.length < MIN_GAME_NAME_LENGTH){
+            return false
+        }
+        return true
     }
 
     private fun launchIntentForPhotos() {
