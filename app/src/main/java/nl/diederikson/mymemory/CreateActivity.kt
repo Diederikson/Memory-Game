@@ -2,6 +2,7 @@ package nl.diederikson.mymemory
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -27,10 +28,7 @@ import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
 import nl.diederikson.mymemory.models.BoardSize
 import nl.diederikson.mymemory.models.MemoryGame
-import nl.diederikson.mymemory.utils.BitmapScaler
-import nl.diederikson.mymemory.utils.EXTRA_BOARD_SIZE
-import nl.diederikson.mymemory.utils.isPermissionGranted
-import nl.diederikson.mymemory.utils.requestPermission
+import nl.diederikson.mymemory.utils.*
 import java.io.ByteArrayOutputStream
 
 class CreateActivity : AppCompatActivity() {
@@ -190,8 +188,18 @@ class CreateActivity : AppCompatActivity() {
 
     }
     private fun saveDataToFireBase() {
-        val customGameName = etGameName.text.toString() // van de console user input
         Log.i(TAG,"saveDataToFirebase")
+        val customGameName = etGameName.text.toString() // van de console user input
+        //check possible overwriting
+        db.collection("games").document(customGameName).get().addOnSuccessListener { document ->
+            if (document != null && document.data != null){ //then there exists a game with that name and it should not be overwritten!
+                AlertDialog.Builder(this)
+                    .setTitle("Sorry, name taken!")
+                    .setMessage("A game with name '$customGameName' already exists. Please choose another")
+            }
+        }
+        var didEncounterError = false
+        val uploadedImageUrls = mutableListOf<String>()//  val means read only (maar de properties kunnen wijzigen)
         //plaatjes kleiner maken // loop met 2 variableen een keer uitzoeken
         for((index,photoUri) in chosenImageUris.withIndex()){
             val imageByteArray = getImageByteArray(photoUri)
@@ -202,15 +210,60 @@ class CreateActivity : AppCompatActivity() {
             // en wegschrijven maar een hele dure operatie en je moet er op wachten. Dat levert dan een punt notatie op?
             // Dat ga ik es ff uitzoeken. En hij noemt die pijlconstructie een Lambdablock
             photoReference.putBytes(imageByteArray)
-                .continueWithTask{ photoUploadTask ->
+                .continueWithTask{ photoUploadTask -> // dit is een lambda block: zou
+                    //het zo zijn dat er dus een hele functie wordt teruggegeven die behangen is met waaarden? [QST]
                     Log.i(TAG,"Uploaded bytes: ${photoUploadTask.result?.bytesTransferred}")
-                    photoReference.downloadUrl //dit maakt dat de error verdwijnt. Iek ga stoppen
-
+                    photoReference.downloadUrl
+                    //dit maakt dat de error verdwijnt. Iek ga stoppen
+                    //heeft ermee te maken dat continuewithtask een contract is om , wel door te gaan met de task
+                    // Neehee. Nou gaan we doar!. Tot laterz Di28-9-2021 810
+                    //de questionmark is dus te lezen als "and if its not null"
+                    //en de downloadURL is asynchrone (je weet niet wanneer die klaar is. Dus semafoortje:
+                }.addOnCompleteListener{downloadUrlTask ->
+                    if (!downloadUrlTask.isSuccessful){
+                        Log.e(TAG, "Exception with Firebase storage", downloadUrlTask.exception)
+                        Toast.makeText(this, "Failed to upload image", Toast.LENGTH_SHORT).show()
+                        didEncounterError = true
+                        return@addOnCompleteListener
+                    }
+                    if (didEncounterError){
+                        return@addOnCompleteListener
+                    }
+                    val downloadUrl = downloadUrlTask.result.toString()
+                    uploadedImageUrls.add(downloadUrl)
+                    Log.i(TAG, "Finished uploading $photoUri, num uploaded ${uploadedImageUrls.size}")
+                    if (uploadedImageUrls.size == chosenImageUris.size) {
+                        handleAllImageUploaded(customGameName,uploadedImageUrls)
+                    }
                 }
 
 
         }
 
+    }
+
+    private fun handleAllImageUploaded(gameName: String, imageUrls: MutableList<String>) {
+        //TODO: upload this info to Firestore
+        //TC Hiergebleven. Keertje runnen: 2:56:38
+        db.collection("games").document(gameName) //dit bereidt de opslag voor
+            .set(mapOf("images" to imageUrls))
+            .addOnCompleteListener{gameCreationTask ->
+                if (!gameCreationTask.isSuccessful){
+                    Log.e(TAG, "Exception with game creation", gameCreationTask.exception)
+                    Toast.makeText(this, "Failed game creation", Toast.LENGTH_SHORT).show()
+                    return@addOnCompleteListener //helaas pindakaas for you
+                }
+                //HIer gebleven succesmessage tonen TC  3:01:56 ev.
+                Log.i(TAG,"Succesfully created game $gameName")
+                AlertDialog.Builder(this)
+                    .setTitle("Upload complete! Let's play your game $gameName")
+                    .setPositiveButton("OK"){_, _->
+                        val resultData = Intent()
+                        resultData.putExtra(EXTRA_GAME_NAME, gameName)
+                        setResult(Activity.RESULT_OK, resultData)
+                        finish()
+                    }.show()
+            }
     }
 
     private fun getImageByteArray(photoUri: Uri): ByteArray {
