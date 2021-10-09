@@ -18,8 +18,10 @@ import android.text.InputFilter
 import android.text.TextWatcher
 import android.util.Log
 import android.view.MenuItem
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -46,6 +48,7 @@ class CreateActivity : AppCompatActivity() {
     private lateinit var rvImagePicker : RecyclerView
     private lateinit var etGameName: EditText
     private lateinit var btnSave : Button
+    private lateinit var pbUploading : ProgressBar
 
     //en lateint: value is set in onCreate. Eigenlijk: de value is later gezet.
     //deez initialisatie gebeurt pas laat in de video. Stukje terug op TC2:36:39
@@ -62,6 +65,7 @@ class CreateActivity : AppCompatActivity() {
         rvImagePicker = findViewById(R.id.rvImagePicker)
         etGameName = findViewById(R.id.etGameName)
         btnSave = findViewById(R.id.btnSave)
+        pbUploading = findViewById(R.id.pbUploading)
         //Hou je bek button werkt nu ff niet
         //supportActionBar?.setDefaultDisplayHomeAsUpEnabled(true)
         boardSize = intent.getSerializableExtra(EXTRA_BOARD_SIZE) as BoardSize
@@ -188,6 +192,8 @@ class CreateActivity : AppCompatActivity() {
 
     }
     private fun saveDataToFireBase() {
+        // om te voorkomen dat de gebruiker door herhaald tikken meerdere games met dezelfde naam aanmaakt
+        btnSave.isEnabled = false
         Log.i(TAG,"saveDataToFirebase")
         val customGameName = etGameName.text.toString() // van de console user input
         //check possible overwriting
@@ -196,8 +202,23 @@ class CreateActivity : AppCompatActivity() {
                 AlertDialog.Builder(this)
                     .setTitle("Sorry, name taken!")
                     .setMessage("A game with name '$customGameName' already exists. Please choose another")
+                    .setPositiveButton("OK",null)
+                    .show()
+                btnSave.isEnabled = true // nie vergete anders kan je nooit meer een nieuwe poging wagen (tc 3:08:50)
+            }else{
+                handleImageUploading(customGameName)
             }
+        }.addOnFailureListener(){exception ->
+            Log.e(TAG, "Encountered error while saving memory game", exception)
+            Toast.makeText(this,"Encountered error while saving",Toast.LENGTH_SHORT).show()
+            btnSave.isEnabled = true
         }
+
+
+    }
+
+    private fun handleImageUploading(gameName: String) {
+        pbUploading.visibility = View.VISIBLE
         var didEncounterError = false
         val uploadedImageUrls = mutableListOf<String>()//  val means read only (maar de properties kunnen wijzigen)
         //plaatjes kleiner maken // loop met 2 variableen een keer uitzoeken
@@ -205,7 +226,7 @@ class CreateActivity : AppCompatActivity() {
             val imageByteArray = getImageByteArray(photoUri)
             //zelf aangemaakt en bedacht afhankelijk van de gamename want dat zoekt makkelijk straks
             // en zie dus ook dat je zelf alles moet aanvullen tot en met de extensie aan toe
-            val filePath = "images/$customGameName/${System.currentTimeMillis()}-${index}.jpg"
+            val filePath = "images/$gameName/${System.currentTimeMillis()}-${index}.jpg"
             val photoReference = storage.reference.child(filePath) //dit zal dan wel de URI zijn?
             // en wegschrijven maar een hele dure operatie en je moet er op wachten. Dat levert dan een punt notatie op?
             // Dat ga ik es ff uitzoeken. En hij noemt die pijlconstructie een Lambdablock
@@ -227,17 +248,18 @@ class CreateActivity : AppCompatActivity() {
                         return@addOnCompleteListener
                     }
                     if (didEncounterError){
+                        pbUploading.visibility = View.GONE
                         return@addOnCompleteListener
                     }
                     val downloadUrl = downloadUrlTask.result.toString()
                     uploadedImageUrls.add(downloadUrl)
+                    pbUploading.progress = uploadedImageUrls.size *100/ chosenImageUris.size
+                    //20211009 HG 03.13.54
                     Log.i(TAG, "Finished uploading $photoUri, num uploaded ${uploadedImageUrls.size}")
                     if (uploadedImageUrls.size == chosenImageUris.size) {
-                        handleAllImageUploaded(customGameName,uploadedImageUrls)
+                        handleAllImageUploaded(gameName,uploadedImageUrls)
                     }
                 }
-
-
         }
 
     }
