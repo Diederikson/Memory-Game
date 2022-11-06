@@ -1,6 +1,7 @@
 package nl.diederikson.mymemory
 
 import android.animation.ArgbEvaluator
+import android.app.Activity
 import android.content.Intent
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
@@ -18,11 +19,14 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.datepicker.MaterialPickerOnPositiveButtonClickListener
 import com.google.android.material.snackbar.Snackbar
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
 import nl.diederikson.mymemory.models.BoardSize
 import nl.diederikson.mymemory.models.MemoryCard
 import nl.diederikson.mymemory.models.MemoryGame
 import nl.diederikson.mymemory.utils.DEFAULT_ICONS
 import nl.diederikson.mymemory.utils.EXTRA_BOARD_SIZE
+import nl.diederikson.mymemory.utils.EXTRA_GAME_NAME
 
 class MainActivity : AppCompatActivity() {
 
@@ -37,6 +41,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvNumMoves: TextView
     private lateinit var tvNumPairs: TextView
 
+    private val db = Firebase.firestore
+    private var gameName: String? = null
     private lateinit var memoryGame: MemoryGame
     private lateinit var adapter: MemoryBoardAdapter
     private var boardSize : BoardSize = BoardSize.HARD
@@ -51,9 +57,9 @@ class MainActivity : AppCompatActivity() {
         tvNumPairs = findViewById(R.id.tvNumPairs)
 
         //Hack to start cardpicking directly for programming purpose
-        val intent = Intent(this, CreateActivity::class.java)
-        intent.putExtra(EXTRA_BOARD_SIZE, BoardSize.MEDIUM)
-        startActivity(intent)
+        //val intent = Intent(this, CreateActivity::class.java)
+        //intent.putExtra(EXTRA_BOARD_SIZE, BoardSize.MEDIUM)
+        //startActivity(intent)
 
         setUpBoard()// alle zaken uitgekopierd naar een nieuwe private function
     }
@@ -86,6 +92,23 @@ class MainActivity : AppCompatActivity() {
 
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == CREATE_REQUEST_CODE && resultCode == Activity.RESULT_OK){
+            val customGameName = data?.getStringExtra(EXTRA_GAME_NAME)//retrieving the game
+            if (customGameName == null){
+               Log.e(TAG,"Got null custom game from CreateActivity")
+               return
+            }
+            downloadGame(customGameName)
+            //Hier gebleven!
+        }
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    private fun downloadGame(gameName: String) {
+        TODO("Not implemented")
     }
 
     private fun showCreationDialog() {

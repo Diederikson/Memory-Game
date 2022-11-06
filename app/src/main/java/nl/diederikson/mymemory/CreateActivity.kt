@@ -270,6 +270,7 @@ class CreateActivity : AppCompatActivity() {
         db.collection("games").document(gameName) //dit bereidt de opslag voor
             .set(mapOf("images" to imageUrls))
             .addOnCompleteListener{gameCreationTask ->
+                pbUploading.visibility = View.GONE
                 if (!gameCreationTask.isSuccessful){
                     Log.e(TAG, "Exception with game creation", gameCreationTask.exception)
                     Toast.makeText(this, "Failed game creation", Toast.LENGTH_SHORT).show()
